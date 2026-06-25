@@ -1,0 +1,21 @@
+# Stretch Thu — 5-service coordinator stack (graded deliverable).
+#
+# The 5 microservices are: coordinator, classifier_svc, nlp_svc,
+# kg_svc, rag_svc. Healthcheck on every service; coordinator
+# depends_on the classifier and the three backends with
+# `condition: service_healthy` (bare depends_on lists wait only
+# for container start, not ready).
+#
+# Optional persistence tier: if your kg_svc and rag_svc wire to
+# real Neo4j and Weaviate backends, add them here too — the
+# resulting topology is 7 services. The graded deliverable is the
+# 5-service stack; the persistence tier is optional and reused
+# from the Integration when needed.
+#
+# TODO (learner): author this file.
+# - services: coordinator, classifier_svc, nlp_svc, kg_svc, rag_svc.
+# - Each service has /healthz and a healthcheck.
+# - coordinator depends on all four downstream services with
+#   condition: service_healthy.
+
+services: {}

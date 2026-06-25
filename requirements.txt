@@ -1,0 +1,9 @@
+# Root-level dev requirements for the stretch — installs the coordinator
+# deps plus pytest. Per-service Dockerfiles each have their own
+# requirements.txt for the image build.
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic==2.10.4
+httpx==0.28.1
+pytest==8.3.4
+pytest-asyncio==0.25.0
