@@ -1,25 +1,81 @@
 """httpx.AsyncClient helpers — per-call timeout enforcement.
 
-Catches a common mistake where learners set the timeout at the session
-level (once across the whole AsyncClient lifecycle) instead of per
-.get/.post call. The session-level timeout still applies but does not
-fire per call, so slow upstreams can starve faster ones.
+One structured log line emitted per call: service / status / latency_ms.
 """
+
+import logging
 import time
 
 import httpx
 
+logger = logging.getLogger(__name__)
 
-async def call_upstream(service: str, url: str, payload: dict, timeout_s: float = 5.0):
+
+async def call_upstream(
+    service: str,
+    url: str,
+    payload: dict,
+    timeout_s: float = 5.0,
+) -> dict:
     """Call one upstream service. Returns an UpstreamResult-shaped dict.
 
-    Per-call timeout via `httpx.Timeout(timeout_s)` on `.post`.
+    Per-call timeout via ``httpx.Timeout(timeout_s)`` passed to the
+    AsyncClient constructor so the stub's ``.post`` signature stays
+    simple (no extra kwargs needed).
+
+    Return shape:
+        {
+            "service": str,
+            "status": "ok" | "error" | "timeout",
+            "latency_ms": float,
+            "payload": dict | None,
+            "error": str | None,
+        }
     """
-    # TODO:
-    # 1. Record start_ms = time.perf_counter() * 1000.
-    # 2. async with httpx.AsyncClient(timeout=httpx.Timeout(timeout_s)) as client:
-    #        try POST url with json=payload.
-    # 3. On TimeoutException → return {"service", "status": "timeout", ...}.
-    # 4. On any other exception → return {"service", "status": "error", "error": str(e), ...}.
-    # 5. On success → return {"service", "status": "ok", "payload": r.json(), ...}.
-    raise NotImplementedError
+    start_ms = time.perf_counter() * 1000
+
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(timeout_s)) as client:
+            response = await client.post(url, json=payload)
+            # raise_for_status inside the context so the stub's
+            # minimal response object doesn't need to outlive the block
+            if hasattr(response, "raise_for_status"):
+                response.raise_for_status()
+
+        latency_ms = (time.perf_counter() * 1000) - start_ms
+
+        result = {
+            "service": service,
+            "status": "ok",
+            "latency_ms": latency_ms,
+            "payload": response.json(),
+            "error": None,
+        }
+
+    except httpx.TimeoutException:
+        latency_ms = (time.perf_counter() * 1000) - start_ms
+        result = {
+            "service": service,
+            "status": "timeout",
+            "latency_ms": latency_ms,
+            "payload": None,
+            "error": "Request timed out",
+        }
+
+    except Exception as exc:
+        latency_ms = (time.perf_counter() * 1000) - start_ms
+        result = {
+            "service": service,
+            "status": "error",
+            "latency_ms": latency_ms,
+            "payload": None,
+            "error": str(exc),
+        }
+
+    logger.debug(
+        "upstream_call service=%s status=%s latency_ms=%.1f",
+        result["service"],
+        result["status"],
+        result["latency_ms"],
+    )
+    return result

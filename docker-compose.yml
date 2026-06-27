@@ -1,21 +1,118 @@
 # Stretch Thu — 5-service coordinator stack (graded deliverable).
 #
-# The 5 microservices are: coordinator, classifier_svc, nlp_svc,
-# kg_svc, rag_svc. Healthcheck on every service; coordinator
-# depends_on the classifier and the three backends with
-# `condition: service_healthy` (bare depends_on lists wait only
-# for container start, not ready).
-#
-# Optional persistence tier: if your kg_svc and rag_svc wire to
-# real Neo4j and Weaviate backends, add them here too — the
-# resulting topology is 7 services. The graded deliverable is the
-# 5-service stack; the persistence tier is optional and reused
-# from the Integration when needed.
-#
-# TODO (learner): author this file.
-# - services: coordinator, classifier_svc, nlp_svc, kg_svc, rag_svc.
-# - Each service has /healthz and a healthcheck.
-# - coordinator depends on all four downstream services with
-#   condition: service_healthy.
+# Services: coordinator, classifier_svc, nlp_svc, kg_svc, rag_svc
+# Every service exposes /healthz and has a Docker healthcheck.
+# coordinator depends on all four downstream services with
+# condition: service_healthy (bare depends_on lists wait only for
+# container start, not readiness — coordinator would race ahead
+# and 503 its first calls).
 
-services: {}
+services:
+
+  # ── NLP microservice ─────────────────────────────────────────────────
+  nlp_svc:
+    build:
+      context: ./services/nlp_svc
+      dockerfile: Dockerfile
+    container_name: nlp_svc
+    ports:
+      - "8002:8000"
+    networks:
+      - backend
+    healthcheck:
+      test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')" ]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  # ── KG microservice ──────────────────────────────────────────────────
+  kg_svc:
+    build:
+      context: ./services/kg_svc
+      dockerfile: Dockerfile
+    container_name: kg_svc
+    ports:
+      - "8003:8000"
+    networks:
+      - backend
+    healthcheck:
+      test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')" ]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  # ── RAG microservice ─────────────────────────────────────────────────
+  rag_svc:
+    build:
+      context: ./services/rag_svc
+      dockerfile: Dockerfile
+    container_name: rag_svc
+    ports:
+      - "8004:8000"
+    networks:
+      - backend
+    healthcheck:
+      test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')" ]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  # ── Classifier service ───────────────────────────────────────────────
+  classifier_svc:
+    build:
+      context: ./services/classifier_svc
+      dockerfile: Dockerfile
+    container_name: classifier_svc
+    ports:
+      - "8001:8000"
+    networks:
+      - backend
+    healthcheck:
+      test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')" ]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  # ── Coordinator ──────────────────────────────────────────────────────
+  coordinator:
+    build:
+      context: ./coordinator
+      dockerfile: Dockerfile
+    container_name: coordinator
+    ports:
+      - "8000:8000"
+    networks:
+      - backend
+    environment:
+      - CLASSIFIER_URL=http://classifier_svc:8000/classify
+      - NLP_SVC_URL=http://nlp_svc:8000/extract
+      - KG_SVC_URL=http://kg_svc:8000/kg/query
+      - RAG_SVC_URL=http://rag_svc:8000/rag/answer
+    depends_on:
+      classifier_svc:
+        condition: service_healthy
+      nlp_svc:
+        condition: service_healthy
+      kg_svc:
+        condition: service_healthy
+      rag_svc:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')" ]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 45s
+    restart: unless-stopped
+
+networks:
+  backend:
+    driver: bridge
