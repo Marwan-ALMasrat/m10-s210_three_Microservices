@@ -1,4 +1,7 @@
-"""httpx.AsyncClient helpers — per-call timeout enforcement."""
+"""httpx.AsyncClient helpers — per-call timeout enforcement.
+
+One structured log line emitted per call: service / status / latency_ms.
+"""
 
 import logging
 import time
@@ -8,21 +11,38 @@ import httpx
 logger = logging.getLogger(__name__)
 
 
-async def call_upstream(service: str, url: str, payload: dict, timeout_s: float = 5.0):
+async def call_upstream(
+    service: str,
+    url: str,
+    payload: dict,
+    timeout_s: float = 5.0,
+) -> dict:
     """Call one upstream service. Returns an UpstreamResult-shaped dict.
 
     Per-call timeout via ``httpx.Timeout(timeout_s)`` passed to the
     AsyncClient constructor so the stub's ``.post`` signature stays
     simple (no extra kwargs needed).
+
+    Return shape:
+        {
+            "service": str,
+            "status": "ok" | "error" | "timeout",
+            "latency_ms": float,
+            "payload": dict | None,
+            "error": str | None,
+        }
     """
     start_ms = time.perf_counter() * 1000
 
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(timeout_s)) as client:
             response = await client.post(url, json=payload)
+            # raise_for_status inside the context so the stub's
+            # minimal response object doesn't need to outlive the block
+            if hasattr(response, "raise_for_status"):
+                response.raise_for_status()
 
         latency_ms = (time.perf_counter() * 1000) - start_ms
-        response.raise_for_status()
 
         result = {
             "service": service,
@@ -42,14 +62,14 @@ async def call_upstream(service: str, url: str, payload: dict, timeout_s: float 
             "error": "Request timed out",
         }
 
-    except Exception as e:
+    except Exception as exc:
         latency_ms = (time.perf_counter() * 1000) - start_ms
         result = {
             "service": service,
             "status": "error",
             "latency_ms": latency_ms,
             "payload": None,
-            "error": str(e),
+            "error": str(exc),
         }
 
     logger.debug(
